@@ -1,0 +1,8 @@
+*.o
+a.out
+disasm
+my_disasmb
+
+*~
+*.swp
+.DS_Store
