@@ -1,12 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-
-
-/* ========== doutes ou questions ==========
-- get_ea    => pourquoi static pour le buffer ;
-            => pourquoi : disp = (high << 8) | low;
-============================================*/
+#include <string.h>
 
 
 /* ========== format de debug ========== 
@@ -30,7 +25,7 @@ uint8_t disp8(FILE * file);
 uint16_t disp16(FILE * file);
 char* get_ea(FILE* file, int rm, int mod);
 void disasmbBase(FILE * file, long text_size);
-void instructionDecoding(FILE * file);
+void instructionDecoding(FILE * file, uint16_t pc,char*out);
 // ===================================
 
 
@@ -104,14 +99,14 @@ char* get_reg(int reg, int w)
     {
         switch (reg)
         {
-            case 0b000: return "AX";
-            case 0b001: return "CX";
-            case 0b010: return "DX";
-            case 0b011: return "BX";
-            case 0b100: return "SP";
-            case 0b101: return "BP";
-            case 0b110: return "SI";
-            case 0b111: return "DI";
+            case 0b000: return "ax";
+            case 0b001: return "cx";
+            case 0b010: return "dx";
+            case 0b011: return "bx";
+            case 0b100: return "sp";
+            case 0b101: return "bp";
+            case 0b110: return "si";
+            case 0b111: return "di";
             default:
                 printf("[GET_REG DEBUG] -----> REG 16-Bit inconnu\n");
                 return NULL;
@@ -122,14 +117,14 @@ char* get_reg(int reg, int w)
     {
         switch (reg)
         {
-            case 0b000: return "AL";
-            case 0b001: return "CL";
-            case 0b010: return "DL";
-            case 0b011: return "BL";
-            case 0b100: return "AH";
-            case 0b101: return "CH";
-            case 0b110: return "DH";
-            case 0b111: return "BH";
+            case 0b000: return "al";
+            case 0b001: return "cl";
+            case 0b010: return "dl";
+            case 0b011: return "bl";
+            case 0b100: return "ah";
+            case 0b101: return "ch";
+            case 0b110: return "dh";
+            case 0b111: return "bh";
             default:
                 printf("[GET_REG DEBUG] -----> REG 8-Bit inconnu");
                 return NULL;
@@ -148,10 +143,10 @@ char* get_seg(int seg)
 {
     switch (seg)
     {
-        case 0b00: return "ES";
-        case 0b01: return "CS";
-        case 0b10: return "SS";
-        case 0b11: return "DS";
+        case 0b00: return "es";
+        case 0b01: return "cs";
+        case 0b10: return "ss";
+        case 0b11: return "ds";
         default:
             printf("[GET_SEG DEBUG] -----> SEG (%i) inconnu\n", seg);
             return "UNKNOWN_SEG";
@@ -175,17 +170,18 @@ uint16_t disp16(FILE* file)
     disp= (disphigh << 8) | displow;
     return disp;
 }
+
 char* get_ea(FILE* file, int rm, int mod)
 {
     static char buffer[64];
-    uint16_t d16;
-    uint8_t d8;
+    int16_t d16;
+    int8_t d8;
 
     if (mod==0b00)
     {
         if (rm==0b110)
         {
-            sprintf(buffer,"[0x%04x]",disp16(file));
+            sprintf(buffer,"[%04x]",disp16(file));
         }
         else
         {
@@ -208,17 +204,29 @@ char* get_ea(FILE* file, int rm, int mod)
     else if (mod==0b01)
     {
         //========== 8-bit DISP ==========
-        d8=disp8(file);
+        d8=(int8_t)disp8(file);
+        int abs;
+        char signe;
+        if (d8<0)
+        {
+            signe='-';
+            abs=-d8;
+        }
+        else 
+        {
+            signe='+';
+            abs=d8;
+        }
         switch (rm)
         {
-            case 0b000: sprintf(buffer,"[bx+si+0x%02x]",d8); break;
-            case 0b001: sprintf(buffer,"[bx+di+0x%02x]",d8); break;
-            case 0b010: sprintf(buffer,"[bp+si+0x%02x]",d8); break;
-            case 0b011: sprintf(buffer,"[bp+di+0x%02x]",d8); break;
-            case 0b100: sprintf(buffer,"[si+0x%02x]",d8); break;
-            case 0b101: sprintf(buffer,"[di+0x%02x]",d8); break;
-            case 0b110: sprintf(buffer,"[bp+0x%02x]",d8); break;
-            case 0b111: sprintf(buffer,"[bx+0x%02x]",d8); break;
+            case 0b000: sprintf(buffer,"[bx+si%c%x]",signe,abs);break;
+            case 0b001: sprintf(buffer,"[bx+di%c%x]",signe,abs);break;
+            case 0b010: sprintf(buffer,"[bp+si%c%x]",signe,abs);break;
+            case 0b011: sprintf(buffer,"[bp+di%c%x]",signe,abs);break;
+            case 0b100: sprintf(buffer,"[si%c%x]",signe,abs);break;
+            case 0b101: sprintf(buffer,"[di%c%x]",signe,abs);break;
+            case 0b110: sprintf(buffer,"[bp%c%x]",signe,abs);break;
+            case 0b111: sprintf(buffer,"[bx%c%x]",signe,abs);break;
             default:
                 printf("[GET_EA DEBUG] -----> r/m (mod=01) inconnu | \t r/m = %i\n",rm);
                 break;
@@ -227,17 +235,29 @@ char* get_ea(FILE* file, int rm, int mod)
     else if (mod==0b10)
     {
         // ========== 16-bit DISP ==========
-        d16=disp16(file);
+        d16=(int16_t)disp16(file);
+        int abs;
+        char signe;
+        if (d16<0)
+        {
+            signe='-';
+            abs=-d16;
+        }
+        else 
+        {
+            signe='+';
+            abs=d16;
+        }
         switch (rm)
         {
-            case 0b000: sprintf(buffer,"[bx+si+0x%04x]",d16); break;
-            case 0b001: sprintf(buffer,"[bx+di+0x%04x]",d16); break;
-            case 0b010: sprintf(buffer,"[bp+si+0x%04x]",d16); break;
-            case 0b011: sprintf(buffer,"[bp+di+0x%04x]",d16); break;
-            case 0b100: sprintf(buffer,"[si+0x%04x]",d16); break;
-            case 0b101: sprintf(buffer,"[di+0x%04x]",d16); break;
-            case 0b110: sprintf(buffer,"[bp+0x%04x]",d16); break;
-            case 0b111: sprintf(buffer,"[bx+0x%04x]",d16); break;
+            case 0b000: sprintf(buffer,"[bx+si%c%x]",signe,abs);break;
+            case 0b001: sprintf(buffer,"[bx+di%c%x]",signe,abs);break;
+            case 0b010: sprintf(buffer,"[bp+si%c%x]",signe,abs);break;
+            case 0b011: sprintf(buffer,"[bp+di%c%x]",signe,abs);break;
+            case 0b100: sprintf(buffer,"[si%c%x]",signe,abs);break;
+            case 0b101: sprintf(buffer,"[di%c%x]",signe,abs);break;
+            case 0b110: sprintf(buffer,"[bp%c%x]",signe,abs);break;
+            case 0b111: sprintf(buffer,"[bx%c%x]",signe,abs);break;
             default:
                 printf("[GET_EA DEBUG] -----> r/m (mod=10) inconnu | \t r/m = %i\n",rm);
                 break;
@@ -257,28 +277,44 @@ void disasmbBase(FILE* file, long text_size)
 {
     fseek(file, 32, SEEK_SET);
     long curr_pos=0;
+    uint16_t pc=0x0000;
 
     while (curr_pos<text_size)
     {
         long avant=ftell(file);
-        /*uint16_t address=(uint16_t)(start_pos-32);
-        printf("%04x: ", addr);*/
 
-        instructionDecoding(file);
+        char instr[128]={0};
+        instructionDecoding(file,pc,instr);
+        
         long apres=ftell(file);
-        if (apres==avant)
+        long diff=apres-avant;
+
+        if (diff==0)
         {
             unsigned char idk;
-            fread(&idk,1,1,file);
+            fseek(file,1,SEEK_CUR);
             printf("[DISASMBBASEDECODING] opcode inconnu (0x%02x), skipped.\n",idk);
-            curr_pos+=1;
+            diff=1;
+            
         }
-        curr_pos+=(apres-avant);
+        fseek(file,avant,SEEK_SET);
+        char hexbuf[32]={0};
+        int pos=0;
+        
+        for (long i=0; i<diff && i<10;i++)
+        {
+            uint8_t bytesinstru;
+            fread(&bytesinstru,1,1,file);
+            pos+=sprintf(hexbuf+pos, "%02x",bytesinstru);
+        }
+        printf("%04x: %-14s%s",pc,hexbuf,instr);
+        pc+=(uint16_t)diff;
+        curr_pos+=diff;
     }      
 }
 
 
-int decode8bits(FILE *file, unsigned char curr,int w, int d)
+int decode8bits(FILE *file, unsigned char curr,int w, int d,uint16_t pc,char*out)
 {
     switch(curr)
     {
@@ -286,13 +322,13 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
         case 0b10001110:
         {
             ModRM m=decode_modrm(file,1);
-            printf("MOV %s, %s\n",get_seg(m.reg),m.rm_name);
+            sprintf(out,"mov %s, %s\n",get_seg(m.reg),m.rm_name);
             break;
         }
         case 0b10001100:
         {
             ModRM m=decode_modrm(file,1);
-            printf("MOV %s, %s\n",m.rm_name,get_seg(m.reg));
+            sprintf(out,"mov %s, %s\n",m.rm_name,get_seg(m.reg));
             break;
         }
         case 0b11111111:
@@ -302,27 +338,42 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
             {
                 case 0b110:
                 {
-                    printf("PUSH %s\n",m.rm_name);
+                    sprintf(out,"push %s\n",m.rm_name);
                     break;
                 }
                 case 0b010:
                 {
-                    printf("CALL %s\n",m.rm_name);
+                    sprintf(out,"call %s\n",m.rm_name);
                     break;
                 }
                 case 0b011:
                 {
-                    printf("CALL FAR %s\n",m.rm_name); 
+                    sprintf(out,"call far %s\n",m.rm_name); 
                     break;
                 }
                 case 0b100:
                 {
-                    printf("JMP %s\n",m.rm_name); 
+                    sprintf(out,"jmp %s\n",m.rm_name); 
                     break;
                 }
                 case 0b101:
                 {
-                    printf("JMP FAR %s\n",m.rm_name);
+                    sprintf(out,"jmp far %s\n",m.rm_name);
+                    break;
+                }
+                case 0b000:
+                {
+                    sprintf(out,"inc %s\n",m.rm_name);
+                    break;
+                }
+                case 0b001:
+                {
+                    sprintf(out,"dec %s\n",m.rm_name);
+                    break;
+                }
+                case 0b111:
+                {
+                    sprintf(out,"push %s\n",m.rm_name);
                     break;
                 }
                 default:
@@ -336,7 +387,7 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
             ModRM m=decode_modrm(file,1);
             if (m.reg==0b000)
             {
-                printf("POP %s\n",m.rm_name);
+                sprintf(out,"pop %s\n",m.rm_name);
             }
             else
             {
@@ -346,45 +397,45 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
         }
         case 0b11010111:
         {
-            printf("XLAT\n");
+            sprintf(out,"xlat\n");
             break;
         }
         case 0b10001101:
         {
             ModRM m=decode_modrm(file,1);
-            printf("LEA %s, %s\n",m.reg_name,m.rm_name);
+            sprintf(out,"lea %s, %s\n",m.reg_name,m.rm_name);
             break;
         }
         case 0b11000101:
         {
             ModRM m=decode_modrm(file,1);
-            printf("LDS %s, %s\n",m.reg_name,m.rm_name);
+            sprintf(out,"lds %s, %s\n",m.reg_name,m.rm_name);
             break;
         }
         case 0b11000100:
         {
             ModRM m=decode_modrm(file,1);
-            printf("LES %s, %s\n",m.reg_name,m.rm_name);
+            sprintf(out,"les %s, %s\n",m.reg_name,m.rm_name);
             break;
         }
         case 0b10011111:
         {
-            printf("LAHF\n");
+            sprintf(out,"lahf\n");
             break;
         }
         case 0b10011110:
         {
-            printf("SAHF\n");
+            sprintf(out,"sahf\n");
             break;
         }
         case 0b10011100:
         {
-            printf("PUSHF\n");
+            sprintf(out,"pushf\n");
             break;
         }
         case 0b10011101:
         {
-            printf("POPF\n");
+            sprintf(out,"popf\n");
             break;
         }
 
@@ -392,46 +443,46 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
     // =================================================== page 2 ===================================================
         case 0b00110111:
         {
-            printf("AAA\n");
+            sprintf(out,"aaa\n");
             break;
         }
         case 0b00100111:
         {
-            printf("BAA\n");
+            sprintf(out,"baa\n");
             break;
         }
         case 0b00111111:
         {
-            printf("AAS\n");
+            sprintf(out,"aas\n");
             break;
         }
         case 0b00101111:
         {
-            printf("DAS\n");
+            sprintf(out,"das\n");
             break;
         }
         case 0b11010100:
         {
             unsigned char tmp;
             fread(&tmp,1,1,file);
-            printf("AAM\n"); 
+            sprintf(out,"aam\n"); 
             break;
         }
         case 0b11010101:
         {
             unsigned char tmp;
             fread(&tmp,1,1,file);
-            printf("AAD\n"); 
+            sprintf(out,"aad\n"); 
             break;
         }
         case 0b10011000:
         {
-            printf("CBW\n");
+            sprintf(out,"cbw\n");
             break;
         }
         case 0b10011001:
         {
-            printf("CWD\n");
+            sprintf(out,"cwd\n");
             break;
         }
 
@@ -439,7 +490,8 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
     // =================================================== page 3 ===================================================
         case 0b11101000:
         {
-            printf("CALL 0x%04x\n", disp16(file));
+            int16_t offset=(int16_t)disp16(file);
+            sprintf(out,"call %04x\n", (uint16_t)(pc+3+offset));
             break;
         }
         /*case 11111111 mod 010 géré ==> p1*/
@@ -447,7 +499,7 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
         {
             uint16_t offset= disp16(file);
             uint16_t segment= disp16(file);
-            printf("CALL 0x%04x:0x%04x\n",segment,offset);
+            sprintf(out,"call %04x:%04x\n",segment,offset);
             break;
         }
         /*case 11111111 mod 011 géré ==> p1*/
@@ -456,12 +508,14 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
     // =================================================== page 4 ===================================================
         case 0b11101001:
         {
-            printf("JMP 0x%04x\n", disp16(file));
+            int16_t offset=(int16_t)disp16(file);
+            sprintf(out,"jmp %04x\n", (uint16_t)(pc+3+(offset)));
             break;
         }
         case 0b11101011:
         {
-            printf("JMP 0x%02x\n", disp8(file));
+            int8_t offset=(int8_t)disp8(file);
+            sprintf(out,"jmp short %04x\n", (uint16_t)(pc+2+(offset)));
             break;
         }
         /*case 11111111 mod 100 géré ==> p1*/
@@ -469,154 +523,157 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
         {
             uint16_t offset= disp16(file);
             uint16_t segment= disp16(file);
-            printf("JMP 0x%04x:0x%04x\n",segment,offset);
+            sprintf(out,"jmp %04x:%04x\n",segment,offset);
             break;
         }
         /*case 11111111 mod 101 géré ==> p1*/
         
         case 0b11000011:
         {
-            printf("RET\n");
+            sprintf(out,"ret\n");
             break;
         }
         case 0b11000010:
         {
-            printf("RET 0x%04x\n", disp16(file));
+            sprintf(out,"ret %04x\n", disp16(file));
             break;
         }
         case 0b11001011:
         {
-            printf("RETF\n");
+            sprintf(out,"retf\n");
             break;
         }
         case 0b11001010:
         {
-            printf("RETF 0x%04x\n", disp16(file));
+            sprintf(out,"retf %04x\n", disp16(file));
             break;
         }
         case 0b01110100:
         {
-            printf("JE 0x%02x\n", disp8(file));
+            int8_t offset= (int8_t)disp8(file);
+            sprintf(out,"je %04x\n", pc+2+offset);
             break;
         }
         
         case 0b01111100:
         {
-            printf("JL 0x%02x\n", disp8(file));
+            sprintf(out,"jl %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01111110:
         {
-            printf("JLE 0x%02x\n", disp8(file));
+            sprintf(out,"jle %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01110010:
         {
-            printf("JB 0x%02x\n", disp8(file));
+            sprintf(out,"jb %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01110110:
         {
-            printf("JBE 0x%02x\n", disp8(file));
+            sprintf(out,"jbe %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01111010:
         {
-            printf("JP 0x%02x\n", disp8(file));
+            sprintf(out,"jp %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
 
         case 0b01110000:
         {
-            printf("JO 0x%02x\n", disp8(file));
+            sprintf(out,"jo %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01111000:
         {
-            printf("JS 0x%02x\n", disp8(file));
+            sprintf(out,"js %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01110101:
         {
-            printf("JNE 0x%02x\n", disp8(file));
+            int8_t offset=(int8_t)disp8(file);
+            sprintf(out,"jne %04x\n", (uint16_t)(pc+2+offset));
             break;
         }
         case 0b01111101:
         {
-            printf("JNL 0x%02x\n", disp8(file));
+            sprintf(out,"jnl %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01111111:
         {
-            printf("JNLE 0x%02x\n", disp8(file));
+            sprintf(out,"jnle %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
 
         case 0b01110011:
         {
-            printf("JNB 0x%02x\n", disp8(file));
+            sprintf(out,"jnb %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01110111:
         {
-            printf("JNBE 0x%02x\n", disp8(file));
+            sprintf(out,"jnbe %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01111011:
         {
-            printf("JNP 0x%02x\n", disp8(file));
+            sprintf(out,"jnp %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01110001:
         {
-            printf("JNO 0x%02x\n", disp8(file));
+            sprintf(out,"jno %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b01111001:
         {
-            printf("JNS 0x%02x\n", disp8(file));
+            sprintf(out,"jns %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
     
         case 0b11100010:
         {
-            printf("LOOP 0x%02x\n", disp8(file));
+            int8_t offset= (uint16_t)disp8(file);
+            sprintf(out,"loop %04x\n", (uint16_t)(pc+2+offset));
             break;
         }
         case 0b11100001:
         {
-            printf("LOOPZ 0x%02x\n", disp8(file));
+            sprintf(out,"loopz %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b11100000:
         {
-            printf("LOOPNZ 0x%02x\n", disp8(file));
+            sprintf(out,"loopnz %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
         case 0b11100011:
         {
-            printf("JCXZ 0x%02x\n", disp8(file));
+            sprintf(out,"jcxz %04x\n", (uint16_t)(pc+2+((uint16_t)disp8(file))));
             break;
         }
 
         case 0b11001101:
         {
-            printf("INT 0x%02x\n", disp8(file));
+            sprintf(out,"int %02x\n", disp8(file));
             break;
         }
         case 0b11001100:
         {
-            printf("INT 3\n");
+            sprintf(out,"int 3\n");
             break;
         }
         case 0b11001110:
         {
-            printf("INTO\n");
+            sprintf(out,"into\n");
             break;
         }
         case 0b11001111:
         {
-            printf("IRET\n");
+            sprintf(out,"iret\n");
             break;
         }
         
@@ -624,52 +681,52 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
         // =================================================== page 5 ===================================================
         case 0b11111000:
         {
-            printf("CLC\n");
+            sprintf(out,"clc\n");
             break;
         }
         case 0b11110101:
         {
-            printf("CMC\n");
+            sprintf(out,"cmc\n");
             break;
         }
         case 0b11111001:
         {
-            printf("STC\n");
+            sprintf(out,"stc\n");
             break;
         }
         case 0b11111100:
         {
-            printf("CLD\n");
+            sprintf(out,"cld\n");
             break;
         }
         case 0b11111101:
         {
-            printf("STD\n");
+            sprintf(out,"std\n");
             break;
         }
         case 0b11111010:
         {
-            printf("CLI\n");
+            sprintf(out,"cli\n");
             break;
         }
         case 0b11111011:
         {
-            printf("STI\n");
+            sprintf(out,"sti\n");
             break;
         }
         case 0b11110100:
         {
-            printf("HLT\n");
+            sprintf(out,"hlt\n");
             break;
         }
         case 0b10011011:
         {
-            printf("WAIT\n");
+            sprintf(out,"wait\n");
             break;
         }
         case 0b11110000:
         {
-            printf("LOCK\n");
+            sprintf(out,"lock\n");
             break;
         }
 
@@ -682,7 +739,7 @@ int decode8bits(FILE *file, unsigned char curr,int w, int d)
     return 1;
 }
 
-int decode7bits(FILE *file, unsigned char curr, int w, int d)
+int decode7bits(FILE *file, unsigned char curr, int w, int d,uint16_t pc,char*out)
 {
     switch(curr & 0b11111110)
     {
@@ -692,11 +749,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (w==0)
             {
-                printf("MOV %s, 0x%02x\n",m.rm_name,disp8(file));
+                sprintf(out,"mov byte %s, %02x\n",m.rm_name,disp8(file));
             }
             else if (w==1)
             {
-                printf("MOV %s, 0x%04x\n",m.rm_name,disp16(file));
+                sprintf(out,"mov %s, %04x\n",m.rm_name,disp16(file));
             }
             else
             {
@@ -709,11 +766,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("MOV AL, [0x%04x]\n", disp16(file));
+                sprintf(out,"mov al, [%04x]\n", disp16(file));
             }
             else if (w==1)
             {
-                printf("MOV AX, [0x%04x]\n", disp16(file));
+                sprintf(out,"mov ax, [%04x]\n", disp16(file));
             }
             else 
             {
@@ -726,11 +783,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("MOV [0x%04x], AL\n", disp16(file));
+                sprintf(out,"mov [%04x], al\n", disp16(file));
             }
             else if (w==1)
             {
-                printf("MOV [0x%04x], AX\n", disp16(file));
+                sprintf(out,"mov [%04x], ax\n", disp16(file));
             }
             else 
             {
@@ -742,18 +799,18 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         case 0b10000110:
         {
             ModRM m= decode_modrm(file,w);
-            printf("XCHG %s, %s\n", m.reg_name, m.rm_name);
+            sprintf(out,"xchg %s, %s\n", m.rm_name, m.reg_name);
             break;
         }
         case 0b11100100:
         {
             if (w==0)
             {
-                printf("IN AL, 0x%02x\n", disp8(file));
+                sprintf(out,"in al, %02x\n", disp8(file));
             }
             else if (w==1)
             {
-                printf("IN AX, 0x%02x\n", disp8(file));
+                sprintf(out,"in ax, %02x\n", disp8(file));
             }
             else 
             {
@@ -766,11 +823,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("IN AL, DX\n");
+                sprintf(out,"in al, dx\n");
             }
             else if (w==1)
             {
-                printf("IN AX, DX\n");
+                sprintf(out,"in ax, dx\n");
             }
             else 
             {
@@ -783,11 +840,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("OUT 0x%02x, AL\n", disp8(file));
+                sprintf(out,"out %02x, al\n", disp8(file));
             }
             else if (w==1)
             {
-                printf("OUT 0x%02x, AX\n", disp8(file));
+                sprintf(out,"out %02x, ax\n", disp8(file));
             }
             else 
             {
@@ -800,11 +857,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("OUT AL, DX\n");
+                sprintf(out,"out al, dx\n");
             }
             else if (w==1)
             {
-                printf("OUT AX, DX\n");
+                sprintf(out,"out ax, dx\n");
             }
             else 
             {
@@ -820,11 +877,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("ADD AL, 0x%02x\n",disp8(file));
+                sprintf(out,"add al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("ADD AX, 0x%04x\n",disp16(file));
+                sprintf(out,"add ax, %04x\n",disp16(file));
             }
             else
             {
@@ -837,11 +894,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("ADC AL, 0x%02x\n",disp8(file));
+                sprintf(out,"adc al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("ADC AX, 0x%04x\n",disp16(file));
+                sprintf(out,"adc ax, %04x\n",disp16(file));
             }
             else
             {
@@ -857,12 +914,12 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
             {
                 case 0b000:
                 {
-                    printf("INC %s\n",m.rm_name);
+                    sprintf(out,"inc %s\n",m.rm_name);
                     break;
                 }
                 case 0b001:
                 {
-                    printf("DEC %s\n",m.rm_name);
+                    sprintf(out,"dec %s\n",m.rm_name);
                     break;
                 }
                 default:
@@ -877,11 +934,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("SUB AL, 0x%02x\n",disp8(file));
+                sprintf(out,"sub al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("SUB AX, 0x%04x\n",disp16(file));
+                sprintf(out,"sub ax, %04x\n",disp16(file));
             }
             else
             {
@@ -894,11 +951,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("SSB AL, 0x%02x\n",disp8(file));
+                sprintf(out,"sbb al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("SSB AX, 0x%04x\n",disp16(file));
+                sprintf(out,"sbb ax, %04x\n",disp16(file));
             }
             else
             {
@@ -915,40 +972,52 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
             {
                 case 0b011:
                 {
-                    printf("NEG %s\n",m.rm_name);
+                    sprintf(out,"neg %s\n",m.rm_name);
                     break;
                 }
                 case 0b100:
                 {
-                    printf("MUL %s\n",m.rm_name);
+                    sprintf(out,"mul %s\n",m.rm_name);
                     break;
                 }
                 case 0b101:
                 {
-                    printf("IMUL %s\n",m.rm_name);
+                    sprintf(out,"imul %s\n",m.rm_name);
                     break;
                 }
                 case 0b110:
                 {
-                    printf("DIV %s\n",m.rm_name);
+                    sprintf(out,"div %s\n",m.rm_name);
                     break;
                 }
                 case 0b111:
                 {
-                    printf("IDIV %s\n",m.rm_name);
+                    sprintf(out,"idiv %s\n",m.rm_name);
                     break;
                 }
                 case 0b010:
                 {
-                    printf("NOT %s\n",m.rm_name);
+                    sprintf(out,"not %s\n",m.rm_name);
                     break;
                 }
                 case 0b000:
                 {
                     if (w==0)
-                        printf("TEST %s, 0x%02x\n",m.rm_name,disp8(file));
+                    {
+                        uint8_t val8= disp8(file);
+                        if (m.mod!=0b11)
+                            sprintf(out,"test byte %s, %x\n",m.rm_name,val8);
+                        else
+                            sprintf(out,"test %s, %x\n",m.rm_name,val8);
+                    }
                     else if (w==1)
-                        printf("TEST %s, 0x%04x\n",m.rm_name,disp16(file));
+                    {
+                        uint16_t val16= disp16(file);
+                        /*if (m.mod!=0b11)
+                            sprintf(out,"test %s, %x\n",m.rm_name,val16);
+                        else*/
+                            sprintf(out,"test %s, %04x\n",m.rm_name,val16);
+                    }
                     else
                     {
                         printf("[DECODE7BITS DEBUG] -----> case 0b1111011w, reg=0b000: w!=1 ou w!=0\n");
@@ -968,11 +1037,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("CMP AL, 0x%02x\n",disp8(file));
+                sprintf(out,"cmp al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("CMP AX, 0x%04x\n",disp16(file));
+                sprintf(out,"cmp ax, %04x\n",disp16(file));
             }
             else
             {
@@ -996,9 +1065,9 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
                 case 0b100:
                 {
                     if (w==0)
-                        printf("AND %s, 0x%02x\n",m.rm_name,disp8(file));
+                        sprintf(out,"and %s, %02x\n",m.rm_name,disp8(file));
                     else if (w==1)
-                        printf("AND %s, 0x%04x\n",m.rm_name,disp16(file));
+                        sprintf(out,"and %s, %04x\n",m.rm_name,disp16(file));
                     else
                     {
                         printf("[DECODE7BITS DEBUG] -----> case 0b1000000w, reg=0b100: w!=1 ou w!=0\n");
@@ -1009,9 +1078,9 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
                 case 0b001:
                 {
                     if (w==0)
-                        printf("OR %s, 0x%02x\n",m.rm_name,disp8(file));
+                        sprintf(out,"or %s, %02x\n",m.rm_name,disp8(file));
                     else if (w==1)
-                        printf("OR %s, 0x%04x\n",m.rm_name,disp16(file));
+                        sprintf(out,"or %s, %04x\n",m.rm_name,disp16(file));
                     else
                     {
                         printf("[DECODE7BITS DEBUG] -----> case 0b1000000w, reg=0b001: w!=1 ou w!=0\n");
@@ -1022,9 +1091,9 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
                 case 0b110:
                 {
                     if (w==0)
-                        printf("XOR %s, 0x%02x\n",m.rm_name,disp8(file));
+                        sprintf(out,"xor %s, %02x\n",m.rm_name,disp8(file));
                     else if (w==1)
-                        printf("XOR %s, 0x%04x\n",m.rm_name,disp16(file));
+                        sprintf(out,"xor %s, %04x\n",m.rm_name,disp16(file));
                     else
                     {
                         printf("[DECODE7BITS DEBUG] -----> case 0b1000000w, reg=0b110: w!=1 ou w!=0\n");
@@ -1044,11 +1113,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("AND AL, 0x%02x\n",disp8(file));
+                sprintf(out,"and al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("AND AX, 0x%04x\n",disp16(file));
+                sprintf(out,"and ax, %04x\n",disp16(file));
             }
             else
             {
@@ -1060,7 +1129,7 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         case 0b10000100:
         {
             ModRM m= decode_modrm(file,w);
-            printf("TEST %s, %s\n", m.reg_name, m.rm_name);
+            sprintf(out,"test %s, %s\n", m.reg_name, m.rm_name);
             break;
         }
         /*case 1111011w mod 000 géré ==> p2*/
@@ -1068,11 +1137,12 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("TEST AL, 0x%02x\n",disp8(file));
+                sprintf(out,"test al, %x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("TEST AX, 0x%04x\n",disp16(file));
+                uint16_t disp16val=disp16(file);
+                sprintf(out,"test ax, %04x\n",disp16val);
             }
             else
             {
@@ -1086,11 +1156,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("OR AL, 0x%02x\n",disp8(file));
+                sprintf(out,"or al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("OR AX, 0x%04x\n",disp16(file));
+                sprintf(out,"or ax, %04x\n",disp16(file));
             }
             else
             {
@@ -1105,11 +1175,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("XOR AL, 0x%02x\n",disp8(file));
+                sprintf(out,"xor al, %02x\n",disp8(file));
             }
             else if (w==1)
             {
-                printf("XOR AX, 0x%04x\n",disp16(file));
+                sprintf(out,"xor ax, %04x\n",disp16(file));
             }
             else
             {
@@ -1120,19 +1190,19 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         }
         case 0b11110010:
         {
-            printf("REP ");
-            instructionDecoding(file);
+            sprintf(out,"rep ");
+            instructionDecoding(file, (uint16_t)(pc+1),out+strlen(out));
             break;
         }
         case 0b10100100:
         {
             if (w==0)
             {
-                printf("MOVSB\n");
+                sprintf(out,"movsb\n");
             }
             else if (w==1)
             {
-                printf("MOVSW\n");
+                sprintf(out,"movsw\n");
             }
             else
             {
@@ -1145,11 +1215,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("CMPSB\n");
+                sprintf(out,"cmpsb\n");
             }
             else if (w==1)
             {
-                printf("CMPSW\n");
+                sprintf(out,"cmosw\n");
             }
             else
             {
@@ -1162,11 +1232,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("SCASB\n");
+                sprintf(out,"scasb\n");
             }
             else if (w==1)
             {
-                printf("SCASW\n");
+                sprintf(out,"scasw\n");
             }
             else
             {
@@ -1179,11 +1249,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("LODSB\n");
+                sprintf(out,"lodsb\n");
             }
             else if (w==1)
             {
-                printf("LODSW\n");
+                sprintf(out,"lodsw\n");
             }
             else
             {
@@ -1196,11 +1266,11 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         {
             if (w==0)
             {
-                printf("STOSB\n");
+                sprintf(out,"stosb\n");
             }
             else if (w==1)
             {
-                printf("STOSW\n");
+                sprintf(out,"stosw\n");
             }
             else
             {
@@ -1211,14 +1281,14 @@ int decode7bits(FILE *file, unsigned char curr, int w, int d)
         }
         default:
         {
-            //printf("[DECODE7BITS DEBUG] -----> unknown opcode (0x%02x)\n",curr); 
+            //printf("[DECODE7BITS DEBUG] -----> unknown opcode (%02x)\n",curr); 
             return 0;
         }
     }
     return 1; 
 }
 
-int decode6bits(FILE *file, unsigned char curr, int w, int d)
+int decode6bits(FILE *file, unsigned char curr, int w, int d,char*out)
 {
     switch(curr & 0b11111100)
     {
@@ -1228,11 +1298,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("MOV %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"mov %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("MOV %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"mov %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1249,11 +1319,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("ADD %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"add %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("ADD %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"add %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1271,9 +1341,27 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                 case 0b100:
                 {
                     if (w==0)
-                        printf("AND %s, 0x%02x\n",m.rm_name,disp8(file));
+                        sprintf(out,"and %s, %02x\n",m.rm_name,disp8(file));
                     else if (w==1)
-                        printf("AND %s, 0x%04x\n",m.rm_name,disp16(file));
+                    {
+                        if (s==1)
+                        {
+                            int8_t idk= (int8_t)disp8(file);
+                            if (idk<0)
+                                sprintf(out,"and %s, %x\n",m.rm_name,idk);
+                            else
+                                sprintf(out,"and %s, %x\n",m.rm_name,(uint8_t)idk);
+                        }
+                        else if (s==0)
+                        {
+                            sprintf(out,"and %s, %04x\n",m.rm_name,disp16(file));
+                        }
+                        else
+                        {
+                            printf("[DECODE6BITS DEBUG]. -----> case 0b1000000w, reg=0b100: s!=1 ou s!=0\n");
+                            return 0;
+                        }
+                    }
                     else
                     {
                         printf("[DECODE6BITS DEBUG]. -----> case 0b1000000w, reg=0b100: w!=1 ou w!=0\n");
@@ -1284,9 +1372,23 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                 case 0b001:
                 {
                     if (w==0)
-                        printf("OR %s, 0x%02x\n",m.rm_name,disp8(file));
+                        sprintf(out,"or %s, %02x\n",m.rm_name,disp8(file));
                     else if (w==1)
-                        printf("OR %s, 0x%04x\n",m.rm_name,disp16(file));
+                    {
+                        if (s==1)
+                        {
+                            sprintf(out,"or %s, %04x\n",m.rm_name,(int16_t)(int8_t)disp8(file));
+                        }
+                        else if (s==0)
+                        {
+                            sprintf(out,"or %s, %04x\n",m.rm_name,disp16(file));
+                        }
+                        else
+                        {
+                            printf("[DECODE6BITS DEBUG]. -----> case 0b1000000w, reg=0b001: s!=1 ou s!=0\n");
+                            return 0;
+                        }
+                    }
                     else
                     {
                         printf("[DECODE6BITS DEBUG]. -----> case 0b1000000w, reg=0b001: w!=1 ou w!=0\n");
@@ -1297,9 +1399,23 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                 case 0b110:
                 {
                     if (w==0)
-                        printf("XOR %s, 0x%02x\n",m.rm_name,disp8(file));
+                        sprintf(out,"xor %s, %02x\n",m.rm_name,disp8(file));
                     else if (w==1)
-                        printf("XOR %s, 0x%04x\n",m.rm_name,disp16(file));
+                    {
+                        if (s==1)
+                        {
+                            sprintf(out,"xor %s, %x\n",m.rm_name,(int16_t)(int8_t)disp8(file));
+                        }
+                        else if (s==0)
+                        {
+                            sprintf(out,"xor %s, %x\n",m.rm_name,disp16(file));
+                        }
+                        else
+                        {
+                            printf("[DECODE6BITS DEBUG]. -----> case 0b1000000w, reg=0b110: s!=1 ou s!=0\n");
+                            return 0;
+                        }
+                    }
                     else
                     {
                         printf("[DECODE6BITS DEBUG]. -----> case 0b1000000w, reg=0b110: w!=1 ou w!=0\n");
@@ -1313,11 +1429,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("ADD %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"add %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("ADD %s, 0x%04x\n", m.rm_name, disp16(file));
+                            sprintf(out,"add %s, %04x\n",m.rm_name,disp16(file));
                         }
                         else
                         {
@@ -1330,11 +1446,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("ADD %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"add %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("ADD %s, 0x%04x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
+                            sprintf(out,"add %s, %x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
                         }
                         else
                         {
@@ -1356,11 +1472,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("ADC %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"adc %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("ADC %s, 0x%04x\n", m.rm_name, disp16(file));
+                            sprintf(out,"adc %s, %04x\n", m.rm_name, disp16(file));
                         }
                         else
                         {
@@ -1373,11 +1489,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("ADC %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"adc %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("ADC %s, 0x%04x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
+                            sprintf(out,"adc %s, %x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
                         }
                         else
                         {
@@ -1399,11 +1515,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("SUB %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"sub %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("SUB %s, 0x%04x\n", m.rm_name, disp16(file));
+                            sprintf(out,"sub %s, %04x\n", m.rm_name, disp16(file));
                         }
                         else
                         {
@@ -1416,11 +1532,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("SUB %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"sub %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("SUB %s, 0x%04x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
+                            sprintf(out,"sub %s, %x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
                         }
                         else
                         {
@@ -1442,11 +1558,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("SSB %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"sbb %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("SSB %s, 0x%04x\n", m.rm_name, disp16(file));
+                            sprintf(out,"sbb %s, %04x\n", m.rm_name, disp16(file));
                         }
                         else
                         {
@@ -1459,11 +1575,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("SSB %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"sbb %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("SSB %s, 0x%04x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
+                            sprintf(out,"sbb %s, %x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
                         }
                         else
                         {
@@ -1485,11 +1601,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("CMP %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"cmp byte %s, %x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("CMP %s, 0x%04x\n", m.rm_name, disp16(file));
+                            sprintf(out,"cmp %s, %04x\n", m.rm_name, disp16(file));
                         }
                         else
                         {
@@ -1502,11 +1618,17 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
                     {
                         if (w==0)
                         {
-                            printf("CMP %s, 0x%02x\n", m.rm_name, disp8(file));
+                            sprintf(out,"cmp byte %s, %02x\n", m.rm_name, disp8(file));
                         }
                         else if (w==1)
                         {
-                            printf("CMP %s, 0x%04x\n", m.rm_name, (int16_t)(int8_t)disp8(file));
+                            int8_t idk=(int8_t)disp8(file);
+                            if (idk<0)
+                            {
+                                sprintf(out,"cmp %s, %d\n", m.rm_name, idk);
+                            }
+                            else
+                                sprintf(out,"cmp %s, %x\n", m.rm_name, (uint8_t)idk);
                         }
                         else
                         {
@@ -1535,11 +1657,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("ADC %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"adc %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("ADC %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"adc %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1554,11 +1676,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("SUB %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"sub %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("SUB %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"sub %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1573,11 +1695,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("SSB %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"sbb %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("SSB %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"sbb %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1592,11 +1714,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("CMP %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"cmp %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("CMP %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"cmp %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1617,7 +1739,7 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             if (v==0)
                 count="1";
             else if (v==1)
-                count="CL";
+                count="cl";
             else
             {
                 printf("[DECODE6BITS DEBUG] -----> case 0b110100vw: v!=1 ou v!=0\n");
@@ -1628,37 +1750,37 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             {
                 case 0b100: 
                 {
-                    printf("SHL %s, %s\n", m.rm_name, count);
+                    sprintf(out,"shl %s, %s\n", m.rm_name, count);
                     break;
                 }
                 case 0b101:
                 {
-                    printf("SHR %s, %s\n", m.rm_name, count);
+                    sprintf(out,"shr %s, %s\n", m.rm_name, count);
                     break;
                 }
                 case 0b111:
                 {
-                    printf("SAR %s, %s\n", m.rm_name, count);
+                    sprintf(out,"sar %s, %s\n", m.rm_name, count);
                     break;
                 }
                 case 0b000:
                 {
-                    printf("ROL %s, %s\n", m.rm_name, count);
+                    sprintf(out,"rol %s, %s\n", m.rm_name, count);
                     break;
                 }
                 case 0b001:
                 {
-                    printf("ROR %s, %s\n", m.rm_name, count);
+                    sprintf(out,"ror %s, %s\n", m.rm_name, count);
                     break;
                 }
                 case 0b010:
                 {
-                    printf("RCL %s, %s\n", m.rm_name, count);
+                    sprintf(out,"rcl %s, %s\n", m.rm_name, count);
                     break;
                 }
                 case 0b011:
                 {
-                    printf("RCR %s, %s\n", m.rm_name, count);
+                    sprintf(out,"rcr %s, %s\n", m.rm_name, count);
                     break;
                 }
                 default:
@@ -1674,11 +1796,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("AND %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"and %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("AND %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"and %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1692,11 +1814,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("OR %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"or %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("OR %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"or %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1710,11 +1832,11 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
             ModRM m= decode_modrm(file,w);
             if (d==0)
             {
-                printf("XOR %s, %s\n", m.rm_name, m.reg_name);
+                sprintf(out,"xor %s, %s\n", m.rm_name, m.reg_name);
             }
             else if (d==1)
             {
-                printf("XOR %s, %s\n", m.reg_name, m.rm_name);
+                sprintf(out,"xor %s, %s\n", m.reg_name, m.rm_name);
             }
             else 
             {
@@ -1731,7 +1853,7 @@ int decode6bits(FILE *file, unsigned char curr, int w, int d)
     return 1;
 }
 
-int decode5bits(FILE* file, unsigned char curr, int w, int d)
+int decode5bits(FILE* file, unsigned char curr, int w, int d,char*out)
 {
     switch(curr & 0b11111000)
     {
@@ -1741,7 +1863,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
             char* reg_name= get_reg(reg, 1);
             if (reg_name!=NULL)
             {
-                printf("PUSH %s\n",reg_name);
+                sprintf(out,"push %s\n",reg_name);
             }
             else
             {
@@ -1756,7 +1878,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
             char* reg_name= get_reg(reg, 1);
             if (reg_name!=NULL)
             {
-                printf("POP %s\n",reg_name);
+                sprintf(out,"pop %s\n",reg_name);
             }
             else
             {
@@ -1771,7 +1893,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
             char* reg_name= get_reg(reg, 1);
             if (reg_name!=NULL)
             {
-                printf("XCHG AX, %s\n",reg_name);
+                sprintf(out,"xchg %s, ax\n",reg_name);
             }
             else
             {
@@ -1786,7 +1908,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
             char* reg_name= get_reg(reg, 1);
             if (reg_name!=NULL)
             {
-                printf("INC %s\n",reg_name);
+                sprintf(out,"inc %s\n",reg_name);
             }
             else
             {
@@ -1801,7 +1923,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
             char* reg_name= get_reg(reg, 1);
             if (reg_name!=NULL)
             {
-                printf("DEC %s\n",reg_name);
+                sprintf(out,"dec %s\n",reg_name);
             }
             else
             {
@@ -1814,7 +1936,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
         {
             ModRM m=decode_modrm(file,1);
             int ext= ((curr & 0b00000111)<<3) | m.reg;
-            printf("ESC 0x%02x, %s\n", ext, m.rm_name);
+            sprintf(out,"ESC %02x, %s\n", ext, m.rm_name);
             break;
         }
         default:
@@ -1825,7 +1947,7 @@ int decode5bits(FILE* file, unsigned char curr, int w, int d)
     return 1;
 }
 
-int decode4bits(FILE* file, unsigned char curr, int w, int d)
+int decode4bits(FILE* file, unsigned char curr, int w, int d,char*out)
 {
     if ((curr & 0b11110000)==0b10110000)
     {
@@ -1840,11 +1962,11 @@ int decode4bits(FILE* file, unsigned char curr, int w, int d)
 
         if (w2==0)
         {
-            printf("MOV %s, 0x%02x\n", reg_name, disp8(file));
+            sprintf(out,"mov %s, %02x\n", reg_name, disp8(file));
         }
         else if (w2==1)
         {
-            printf("MOV %s, 0x%04x\n", reg_name, disp16(file));
+            sprintf(out,"mov %s, %04x\n", reg_name, disp16(file));
         }
         else
         {
@@ -1859,7 +1981,7 @@ int decode4bits(FILE* file, unsigned char curr, int w, int d)
     return 1;
 }
 
-int decode3bits(FILE* file, unsigned char curr, int w, int d)
+int decode3bits(FILE* file, unsigned char curr, int w, int d,char*out)
 {
     if ((curr & 0b11100111)==0b00000110)
     {
@@ -1867,7 +1989,7 @@ int decode3bits(FILE* file, unsigned char curr, int w, int d)
         char*seg_name=get_seg(segment);
         if (seg_name!=NULL)
         {
-            printf("PUSH %s\n",seg_name);
+            sprintf(out,"push %s\n",seg_name);
         }
         else
         {
@@ -1882,7 +2004,7 @@ int decode3bits(FILE* file, unsigned char curr, int w, int d)
         char*seg_name=get_seg(segment);
         if (seg_name!=NULL)
         {
-            printf("POP %s\n",seg_name);
+            sprintf(out,"pop %s\n",seg_name);
         }
         else
         {
@@ -1898,28 +2020,28 @@ int decode3bits(FILE* file, unsigned char curr, int w, int d)
 }
 
 
-void instructionDecoding(FILE * file)
+void instructionDecoding(FILE * file, uint16_t pc, char *out)
 {
-    unsigned char curr;
+    uint8_t curr;
     if (fread(&curr,1,1,file)!=1)
         return;
 
     int w=curr & 0b00000001;
     int d=(curr>>1) & 0b0000001;
 
-    if (decode8bits(file,curr,w,d)==1)
+    if (decode8bits(file,curr,w,d, pc,out)==1)
         return;
-    else if (decode7bits(file,curr,w,d)==1)
+    else if (decode7bits(file,curr,w,d, pc,out)==1)
         return;
-    else if (decode6bits(file,curr,w,d)==1)
+    else if (decode6bits(file,curr,w,d,out)==1)
         return;
-    else if (decode5bits(file,curr,w,d)==1)
+    else if (decode5bits(file,curr,w,d,out)==1)
         return;
-    else if (decode4bits(file,curr,w,d)==1)
+    else if (decode4bits(file,curr,w,d,out)==1)
         return;
-    else if (decode3bits(file,curr,w,d)==1)
+    else if (decode3bits(file,curr,w,d,out)==1)
         return;
     else
-        printf("[INSTRUCTIONDECODING DEBUG] -----> unknown opcode (0x%02x)\n",curr); 
+        printf("[INSTRUCTIONDECODING DEBUG] -----> unknown opcode (%02x)\n",curr); 
 
 }
